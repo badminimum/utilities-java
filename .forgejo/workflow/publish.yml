@@ -10,7 +10,7 @@ on:
 
 jobs:
   publish:
-    runs-on: docker
+    runs-on: codeberg-medium-lazy
     container:
       image: eclipse-temurin:25-jdk
 
@@ -27,8 +27,7 @@ jobs:
             echo "ERROR: You must provide a module name when triggering manually."
             exit 1
           fi
-          
-          ./gradlew clean ":$MODULE:publishToMavenCentral" --no-configuration-cache
+          ./gradlew clean ":$MODULE:publishToMavenCentral" --no-daemon --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
