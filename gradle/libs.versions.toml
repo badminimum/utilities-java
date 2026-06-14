@@ -1,0 +1,10 @@
+[versions]
+gradle-plugin-gradleup-shadow = "9.4.2"
+gradle-plugin-vanniktech-mavenpublish = "0.36.0"
+
+[libraries]
+gradle-plugin-gradleup-shadow = { group = "com.gradleup.shadow", name = "com.gradleup.shadow.gradle.plugin", version.ref = "gradle-plugin-gradleup-shadow" }
+gradle-plugin-vanniktech-mavenpublish = { group = "com.vanniktech.maven.publish", name = "com.vanniktech.maven.publish.gradle.plugin", version.ref = "gradle-plugin-vanniktech-mavenpublish" }
+
+[bundles]
+gradle-plugins = ["gradle-plugin-gradleup-shadow", "gradle-plugin-vanniktech-mavenpublish"]
