@@ -19,8 +19,10 @@ afterEvaluate {
             inceptionYear.set(conventionExtension.inceptionYear.map { it.toString() })
             url.set(conventionExtension.url)
             licenses {
-                if (conventionExtension.licenses.isPresent) {
-                    conventionExtension.licenses.getOrElse(emptySet()).forEach {
+                val configuredLicenses = conventionExtension.licenses.getOrElse(emptySet())
+
+                if (configuredLicenses.isNotEmpty()) {
+                    configuredLicenses.forEach {
                         license {
                             name.set(it.name)
                             url.set(it.url)
@@ -29,9 +31,9 @@ afterEvaluate {
                         }
                     }
                 } else {
-                    make<MavenPomLicense> {
+                    license {
                         name.set("The Apache License, Version 2.0")
-                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
                         distribution.set("repo")
                     }
                 }
