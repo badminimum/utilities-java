@@ -1,0 +1,37 @@
+name: Publish to Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      module_to_publish:
+        description: 'Module to publish'
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: docker
+    container:
+      image: eclipse-temurin:25-jdk
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Publish Module via Gradle
+        run: |
+          # The input is automatically fetched from the UI text box
+          MODULE="${{ github.event.inputs.module_to_publish }}"
+          
+          if [ -z "$MODULE" ]; then
+            echo "ERROR: You must provide a module name when triggering manually."
+            exit 1
+          fi
+          
+          ./gradlew clean ":$MODULE:publishToMavenCentral" --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_MAVEN_CENTRAL_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.GPG_MAVEN_CENTRAL_PRIVATE_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_MAVEN_CENTRAL_PRIVATE_KEY_PASSWORD }}
