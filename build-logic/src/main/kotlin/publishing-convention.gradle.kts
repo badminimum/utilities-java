@@ -1,6 +1,5 @@
 plugins {
     id("com.vanniktech.maven.publish")
-    signing
 }
 
 project.objects.domainObjectContainer(MavenPomLicense::class.java)
@@ -21,19 +20,19 @@ afterEvaluate {
             url.set(conventionExtension.url)
             licenses {
                 if (conventionExtension.licenses.isPresent) {
-                    conventionExtension.licenses.get().forEach {
+                    conventionExtension.licenses.getOrElse(emptySet()).forEach {
                         license {
                             name.set(it.name)
                             url.set(it.url)
                             distribution.set(it.distribution)
-                            comments.set(comments)
+                            comments.set(it.comments)
                         }
                     }
                 } else {
                     make<MavenPomLicense> {
                         name.set("The Apache License, Version 2.0")
                         url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                        distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                        distribution.set("repo")
                     }
                 }
             }
@@ -45,7 +44,7 @@ afterEvaluate {
                     roles.set(setOf("lead", "developer"))
                     timezone.set("Europe/Berlin")
                 }
-                conventionExtension.developers.get().forEach {
+                conventionExtension.developers.getOrElse(emptySet()).forEach {
                     developer {
                         id.set(it.id)
                         name.set(it.name)
