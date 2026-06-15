@@ -12,4 +12,4 @@ pluginManagement {
 
 rootProject.name = "Utils"
 
-include("outcome")
+include("outcome", "datasize")
