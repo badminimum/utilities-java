@@ -1,376 +1,305 @@
 package com.badminimum.utilities.outcome;
 
-import com.badminimum.utilities.outcome.exception.OutcomeFailureExtractionException;
-import com.badminimum.utilities.outcome.internal.Helper;
 import org.jetbrains.annotations.Contract;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.*;
+import java.util.stream.Stream;
+
+import static com.badminimum.utilities.outcome.internal.Helper.tryCatch;
 
 @SuppressWarnings("unused")
 @NullMarked
-public sealed interface Outcome<Value> permits Outcome.Failure, Outcome.Success {
+public sealed interface Outcome<Value>
+        extends OutcomeExtractable<Value>
+        permits FailureOutcome, SuccessOutcome {
+    // =========================================
+    // Factory & Creation Methods
+    // =========================================
     @Contract(pure = true)
-    private static <T> @Nullable T orElse(@Nullable T nullable, @Nullable T fallback) {
-        return (nullable == null) ? fallback : nullable;
+    static SuccessOutcome<Empty> empty() {
+        return new SuccessOutcome<>(Empty.INSTANCE);
     }
 
     @Contract(pure = true)
-    static <Value> Success<Value> success(Value value) {
-        return new Success<>(value);
+    static <Value> SuccessOutcome<Value> success(Value value) {
+        return new SuccessOutcome<>(value);
     }
 
     @Contract(pure = true)
-    static <Value> Failure<Value> failure(
-            @Nullable String message,
-            @Nullable Exception exception,
-            @Nullable Outcome<?> outcome
-    ) {
-        return new Failure<>(message, exception, outcome);
+    static SuccessOutcome<Empty> success() {
+        return empty();
     }
 
     @Contract(pure = true)
-    static <Value> Failure<Value> failure(@Nullable String message) {
-        return new Failure<>(message);
+    static <Value> FailureOutcome<Value> failure(@Nullable String message) {
+        return new FailureOutcome<>(message);
     }
 
     @Contract(pure = true)
-    static <Value> Failure<Value> failure(@Nullable Exception exception) {
-        return new Failure<>(exception);
+    static <Value> FailureOutcome<Value> failure(@Nullable Exception exception) {
+        return new FailureOutcome<>(exception);
     }
 
     @Contract(pure = true)
-    static <Value> Failure<Value> failure(@Nullable Outcome<?> outcome) {
-        return new Failure<>(outcome);
+    static <Value> FailureOutcome<Value> failure(@Nullable Outcome<?> outcome) {
+        return new FailureOutcome<>(outcome);
     }
 
     @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     @Contract(pure = true)
     static <Value> Outcome<Value> fromOptional(
             Optional<? extends Value> optional,
-            Supplier<Failure<Value>> failureSupplier
+            Supplier<FailureOutcome<Value>> failureSupplier
     ) {
         return optional.<Outcome<Value>>map(Outcome::success).orElseGet(failureSupplier);
     }
 
+    @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
     @Contract(pure = true)
-    static <Value> Outcome<Value> fromNullable(
+    static <Value> Outcome<Value> fromOptional(
+            Optional<? extends Value> optional
+    ) {
+        return optional.<Outcome<Value>>map(Outcome::success).orElseGet(() -> failure("Optional value was empty"));
+    }
+
+    @Contract(pure = true)
+    static <Value> Outcome<Value> ofNullable(
             @Nullable Value value,
-            Supplier<Failure<Value>> failureSupplier
+            Supplier<FailureOutcome<Value>> failureSupplier
     ) {
         return (value != null) ? success(value) : failureSupplier.get();
     }
 
-    static <Value> Outcome<Value> runCatching(Supplier<? extends Value> valueSupplier,
-            Function<? super Exception, Failure<Value>> failureMethod) {
-        return tryCatch(
-                () -> success(valueSupplier.get()),
-                failureMethod
-        );
-    }
-
-    static <Value> Outcome<Value> runCatching(Supplier<? extends Value> valueSupplier) {
-        return runCatching(valueSupplier,
-                (Exception exception) -> failure("Exception in runCatching").with(exception));
-    }
-
-    static <Value> Outcome<Value> runCatchingOutcome(Supplier<? extends Outcome<Value>> outcomeSupplier,
-            Function<? super Exception, Failure<Value>> failureMethod) {
-        return tryCatch(
-                outcomeSupplier,
-                failureMethod
-        );
-    }
-
-    static <Value> Outcome<Value> runCatchingOutcome(Supplier<? extends Outcome<Value>> outcomeSupplier) {
-        return runCatchingOutcome(outcomeSupplier,
-                (Exception exception) -> failure("Exception in runCatchingOutcome").with(exception));
-    }
-
-    private static <Value> Outcome<Value> tryCatch(Supplier<? extends Outcome<Value>> successSupplier,
-            Function<? super Exception, Failure<Value>> failureFunction) {
-        try {
-            return successSupplier.get();
-        } catch (Exception exception) {
-            if (Helper.EXCEPTIONS_ILLEGAL_TO_CATCH.contains(exception.getClass())) {
-                throw exception;
-            }
-            return failureFunction.apply(exception);
-        }
-    }
-
+    // =========================================
+    // Transformation & Mapping
+    // =========================================
     default <Return> Outcome<Return> map(Function<? super Value, ? extends Return> transformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> failure.coerce();
-            case Success<Value>(var value) -> success(transformer.apply(value));
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) -> success(transformer.apply(value));
         };
     }
 
     default <Return> Outcome<Return> mapCatching(Function<? super Value, ? extends Return> transformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> failure.coerce();
-            case Success<Value>(var value) -> tryCatch(
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) -> tryCatch(
                     () -> success(transformer.apply(value)),
-                    (Exception exception) -> failure("Exception in mapCatching").with(exception)
+                    (var exception) -> failure("Exception in mapCatching").with(exception)
             );
         };
     }
 
-    default Outcome<Value> mapFailure(Function<? super Failure<Value>, Failure<Value>> transformer) {
+    default Outcome<Value> mapFailure(Function<? super FailureOutcome<Value>, FailureOutcome<Value>> transformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> transformer.apply(failure);
-            case Outcome.Success<Value> v -> this;
+            case FailureOutcome<Value> failure -> transformer.apply(failure);
+            case SuccessOutcome<Value> v -> this;
         };
     }
 
     default <Return> Outcome<Return> flatMap(Function<? super Value, ? extends Outcome<Return>> transformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> failure.coerce();
-            case Success<Value>(var value) -> transformer.apply(value);
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) -> transformer.apply(value);
         };
     }
 
     default <Return> Outcome<Return> flatMapCatching(Function<? super Value, ? extends Outcome<Return>> transformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> failure.coerce();
-            case Success<Value>(var value) -> Outcome.tryCatch(
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) -> tryCatch(
                     () -> transformer.apply(value),
-                    (Exception exception) -> failure("Exception in flatMapCatching").with(exception)
+                    (var exception) -> failure("Exception in flatMapCatching").with(exception)
             );
         };
     }
 
-    default <Return> Return fold(
-            Function<? super Value, ? extends Return> onSuccess,
-            Function<? super Failure<Value>, ? extends Return> onFailure
-    ) {
+    @SuppressWarnings("unchecked")
+    default Outcome<Value> flatten() {
         return switch (this) {
-            case Failure<Value> failure -> onFailure.apply(failure);
-            case Success<Value>(var value) -> onSuccess.apply(value);
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) ->
+                    (value instanceof Outcome<?> inner) ? (Outcome<Value>) inner : this;
         };
     }
 
+    default Outcome<Empty> ignoreElement() {
+        return this.map((var ignored) -> Empty.INSTANCE);
+    }
+
+    // =========================================
+    // Recovery & Fallbacks
+    // =========================================
     default Outcome<Value> recover(
-            Function<? super Failure<Value>, ? extends Value> recover) {
+            Function<? super FailureOutcome<Value>, ? extends Value> recover) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> success(recover.apply(failure));
-            case Outcome.Success<Value> success -> this;
+            case FailureOutcome<Value> failure -> success(recover.apply(failure));
+            case SuccessOutcome<Value> success -> this;
+        };
+    }
+
+    default Outcome<Value> recoverWith(
+            Function<? super FailureOutcome<Value>, ? extends Outcome<Value>> fallbackTransformer) {
+        return switch (this) {
+            case FailureOutcome<Value> failure -> fallbackTransformer.apply(failure);
+            case SuccessOutcome<Value> success -> this;
         };
     }
 
     default Outcome<Value> recoverCatching(
-            Function<? super Failure<Value>, ? extends Value> recover) {
+            Function<? super FailureOutcome<Value>, ? extends Value> recover) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> tryCatch(
+            case FailureOutcome<Value> failure -> tryCatch(
                     () -> success(recover.apply(failure)),
-                    (Exception exception) -> failure("Exception in recoverCatching").with(exception)
+                    (var exception) -> failure("Exception in recoverCatching").with(exception)
             );
-            case Outcome.Success<Value> success -> this;
+            case SuccessOutcome<Value> success -> this;
         };
     }
 
-    default Outcome<Value> filter(
-            Predicate<? super Value> predicate,
-            Function<? super Value, Failure<Value>> failureProvider
-    ) {
+    default Outcome<Value> recoverWithCatching(
+            Function<? super FailureOutcome<Value>, ? extends Outcome<Value>> fallbackTransformer) {
         return switch (this) {
-            case Outcome.Failure<Value> failure -> failure.coerce();
-            case Success<Value>(var value) -> predicate.test(value) ? this : failureProvider.apply(value);
+            case FailureOutcome<Value> failure -> tryCatch(
+                    () -> fallbackTransformer.apply(failure),
+                    (var exception) -> failure("Exception in recoverCatching").with(exception)
+            );
+            case SuccessOutcome<Value> success -> this;
         };
     }
 
     default Outcome<Value> or(Supplier<? extends Outcome<Value>> fallbackSupplier) {
         return switch (this) {
-            case Outcome.Failure<Value> ignored -> fallbackSupplier.get();
-            case Outcome.Success<Value> ignored -> this;
+            case FailureOutcome<Value> ignored -> fallbackSupplier.get();
+            case SuccessOutcome<Value> ignored -> this;
         };
+    }
+
+    // =========================================
+    // Combination & Filtering
+    // =========================================
+    default Outcome<Value> filter(
+            Predicate<? super Value> predicate,
+            Function<? super Value, FailureOutcome<Value>> failureProvider
+    ) {
+        return switch (this) {
+            case FailureOutcome<Value> failure -> failure.coerce();
+            case SuccessOutcome<Value>(var value, var ignored) ->
+                    predicate.test(value) ? this : failureProvider.apply(value);
+        };
+    }
+
+    default Outcome<Value> filter(
+            Predicate<? super Value> predicate,
+            String failureMessage
+    ) {
+        return this.filter(predicate, (var ignored) -> failure(failureMessage));
     }
 
     default <Other, Combined> Outcome<Combined> combine(
             Outcome<Other> other,
             BiFunction<? super Value, ? super Other, ? extends Combined> combineFunction
     ) {
-        return this.flatMap((Value val1) -> other.map((Other val2) -> combineFunction.apply(val1, val2)));
+        return this.flatMap((var val1) -> other.map((var val2) -> combineFunction.apply(val1, val2)));
     }
 
     default <Other, Combined> Outcome<Combined> combineCatching(
             Outcome<Other> other,
             BiFunction<? super Value, ? super Other, ? extends Combined> combineFunction
     ) {
-        return this.flatMapCatching((Value val1) -> other.mapCatching((Other val2) ->
+        return this.flatMapCatching((var val1) -> other.mapCatching((var val2) ->
                 combineFunction.apply(val1, val2)));
     }
 
+    // =========================================
+    // Terminal Operations & Execution
+    // =========================================
+    default <Return> Return fold(
+            Function<? super Value, ? extends Return> onSuccess,
+            Function<? super FailureOutcome<Value>, ? extends Return> onFailure
+    ) {
+        return switch (this) {
+            case FailureOutcome<Value> failure -> onFailure.apply(failure);
+            case SuccessOutcome<Value>(var value, var ignored) -> onSuccess.apply(value);
+        };
+    }
+
+    default void consumer(
+            Consumer<? super Value> onSuccess,
+            Consumer<? super FailureOutcome<Value>> onFailure
+    ) {
+        switch (this) {
+            case FailureOutcome<Value> failure -> onFailure.accept(failure);
+            case SuccessOutcome<Value>(var value, var ignored) -> onSuccess.accept(value);
+        }
+    }
+
     default Outcome<Value> onSuccess(Consumer<? super Value> action) {
-        if (this instanceof Success<Value>(var value)) {
+        if (this instanceof SuccessOutcome<Value>(var value, var ignored)) {
             action.accept(value);
         }
         return this;
     }
 
-    default Outcome<Value> onFailure(Consumer<? super Failure<Value>> action) {
-        if (this instanceof Failure<Value> failure) {
+    default Outcome<Value> onFailure(Consumer<? super FailureOutcome<Value>> action) {
+        if (this instanceof FailureOutcome<Value> failure) {
             action.accept(failure);
         }
         return this;
     }
 
-    Value getOrThrow();
-
-    Optional<Value> getOrEmpty();
-
-    Value getOrDefault(Value fallback);
-
-    Value getOrElse(Supplier<? extends Value> fallbackSupplier);
-
-    @NullMarked
-    record Success<Value>(Value value)
-            implements Outcome<Value> {
-        public Success {
-            Objects.requireNonNull(value, "Success Outcome value cannot be null");
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Value getOrThrow() {
-            return this.value;
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Optional<Value> getOrEmpty() {
-            return Optional.of(this.value);
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Value getOrDefault(Value fallback) {
-            return this.value;
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Value getOrElse(Supplier<? extends Value> fallbackSupplier) {
-            return this.value;
-        }
+    default Outcome<Value> peek(Consumer<? super Outcome<Value>> consumer) {
+        consumer.accept(this);
+        return this;
     }
 
-    @NullMarked
-    @SuppressWarnings({"PublicMethodNotExposedInInterface", "unused"})
-    record Failure<Value>(
-            // Annotated as Nullable, but is set to DEFAULT_MESSAGE when null
-            @Nullable String message,
-            @Nullable Exception exception,
-            @Nullable Outcome<?> outcome
-    ) implements Outcome<Value> {
-        private static final String DEFAULT_MESSAGE = "No message provided.";
+    default Outcome<Value> finallyDo(Runnable action) {
+        action.run();
+        return this;
+    }
 
-        public Failure {
-            if (message == null) {
-                message = DEFAULT_MESSAGE;
-            }
-        }
+    // =========================================
+    // Type Interoperability & Conversion
+    // =========================================
+    default Stream<Value> stream() {
+        return this.fold(Stream::of, (var failure) -> Stream.empty());
+    }
 
-        public Failure(@Nullable String message) {
-            this(message, null, null);
-        }
+    default CompletableFuture<Value> toCompletableFuture() {
+        return this.fold(
+                CompletableFuture::completedFuture,
+                (var failure) -> CompletableFuture.failedFuture(
+                        (failure.exceptionOrNull() != null)
+                                ? failure.exceptionOrNull()
+                                : new RuntimeException(failure.message())
+                )
+        );
+    }
 
-        public Failure(@Nullable Exception exception) {
-            this((exception != null) ? exception.getMessage() : DEFAULT_MESSAGE, exception, null);
-        }
+    // =========================================
+    // Inspection & Status Queries
+    // =========================================
+    default boolean isSuccess() {
+        return this instanceof SuccessOutcome;
+    }
 
-        public Failure(@Nullable Outcome<?> outcome) {
-            this(DEFAULT_MESSAGE, null, outcome);
-        }
+    default boolean isFailure() {
+        return this instanceof FailureOutcome;
+    }
 
-        @SuppressWarnings("DataFlowIssue")
-        @Contract(pure = true)
-        @Override
-        public String message() {
-            return this.message;
-        }
+    default Optional<SuccessOutcome<Value>> asSuccess() {
+        return (this instanceof SuccessOutcome<Value> success) ? Optional.of(success) : Optional.empty();
+    }
 
-        @Contract(pure = true)
-        public <NewValue> Failure<NewValue> with(@Nullable String message) {
-            return new Failure<>(message, this.exception, this.outcome);
-        }
+    default Optional<FailureOutcome<Value>> asFailure() {
+        return (this instanceof FailureOutcome<Value> failure) ? Optional.of(failure) : Optional.empty();
+    }
 
-        @Contract(pure = true)
-        public <NewValue> Failure<NewValue> with(@Nullable Exception exception) {
-            return (exception == null)
-                    ? new Failure<>(this.message, null, this.outcome)
-                    : new Failure<>(
-                            Outcome.orElse(this.message, exception.getMessage()),
-                            exception,
-                            this.outcome
-                    );
-        }
-
-        @Contract(pure = true)
-        public <NewValue> Failure<NewValue> with(@Nullable Outcome<?> outcome) {
-            return new Failure<>(this.message, this.exception, outcome);
-        }
-
-        @Contract(pure = true)
-        public Optional<Exception> exceptionOrEmpty() {
-            return Optional.ofNullable(this.exceptionOrNull());
-        }
-
-        @Contract(pure = true)
-        public @Nullable Exception exceptionOrNull() {
-            return this.exception;
-        }
-
-        public void rethrow() {
-            if (this.exception == null) {
-                return;
-            }
-            if (!(this.exception instanceof RuntimeException)) {
-                return;
-            }
-            throw (RuntimeException) this.exception;
-        }
-
-        public <E extends Exception> void rethrowChecked(Class<E> exceptionClass) throws E {
-            if (this.exception == null) {
-                return;
-            }
-            if (!exceptionClass.isInstance(this.exception)) {
-                return;
-            }
-            throw exceptionClass.cast(this.exception);
-        }
-
-        @SuppressWarnings("unchecked")
-        @Contract(pure = true)
-        public <NewValue> Outcome<NewValue> coerce() {
-            return (Outcome<NewValue>) this;
-        }
-
-        @SuppressWarnings("DataFlowIssue")
-        @Override
-        public Value getOrThrow() {
-            throw new OutcomeFailureExtractionException(this.message, this.exception);
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Optional<Value> getOrEmpty() {
-            return Optional.empty();
-        }
-
-        @Contract(pure = true)
-        @Override
-        public Value getOrDefault(Value fallback) {
-            return fallback;
-        }
-
-        @Override
-        public Value getOrElse(Supplier<? extends Value> fallbackSupplier) {
-            return fallbackSupplier.get();
-        }
+    enum Empty {
+        INSTANCE
     }
 }
